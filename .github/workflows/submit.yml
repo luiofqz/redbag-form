@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       headcodes:
-        description: 'Headcodes (separated by spaces, commas or new lines)'
-        required: true
+        description: 'Optional. Leave EMPTY to use the list in headcodes.txt'
+        required: false
         type: string
       dry_run:
         description: 'Dry run: fill the form but do NOT submit'

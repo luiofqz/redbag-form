@@ -9,14 +9,11 @@ const BASE_STATION = process.env.BASE_STATION || 'KGX';
 const TURNAROUND_LOCATION = process.env.TURNAROUND_LOCATION || 'KGX';
 const DRY_RUN = process.env.DRY_RUN !== 'false';
 
-const codes = [
-  ...new Set(
-    (process.env.HEADCODES || '')
-      .toUpperCase()
-      .split(/[\s,;]+/)
-      .filter(Boolean),
-  ),
-];
+// Headcodes typed into the workflow take priority; otherwise use headcodes.txt
+// (one per line, everything after '#' is ignored).
+const typed = (process.env.HEADCODES || '').trim();
+const raw = typed || fs.readFileSync('headcodes.txt', 'utf8').replace(/#.*$/gm, '');
+const codes = [...new Set(raw.toUpperCase().split(/[\s,;]+/).filter(Boolean))];
 
 if (!FORM_URL) throw new Error('FORM_URL is not set');
 if (codes.length === 0) throw new Error('No headcodes provided');
