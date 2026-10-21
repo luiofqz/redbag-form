@@ -1,0 +1,52 @@
+name: Submit Red Bag form
+
+on:
+  workflow_dispatch:
+    inputs:
+      headcodes:
+        description: 'Headcodes (separated by spaces, commas or new lines)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry run: fill the form but do NOT submit'
+        required: true
+        type: boolean
+        default: true
+
+concurrency:
+  group: redbag-form
+  cancel-in-progress: false
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Fill form
+        env:
+          FORM_URL: 'https://forms.cloud.microsoft/Pages/ResponsePage.aspx?id=epN2o7B0xUGY4WFX7HH6_IjIpTyxj5BPi4vEj19gOzpUN0pHMUNPUTBKVzRVNlk5QloyWEVGTUgyQiQlQCN0PWcu&qrcode=true'
+          DUTY_NUMBER: 'LUIGI CERBAN'
+          BASE_STATION: 'KGX'
+          TURNAROUND_LOCATION: 'KGX'
+          HEADCODES: ${{ inputs.headcodes }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: node submit.mjs
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: out/
+          if-no-files-found: ignore
