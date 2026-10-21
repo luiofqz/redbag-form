@@ -10,6 +10,13 @@ const REPO = 'luiofqz/redbag-form';
 const WORKFLOW = 'submit.yml';
 const GH = 'https://api.github.com';
 
+// Shifts offered on the page. The value must match an option of the workflow's
+// "shift" input and a file shifts/<value>.txt in the repository.
+const SHIFTS = [
+  { value: '0800-1600', label: '08:00 - 16:00' },
+  { value: '0630-1430', label: '06:30 - 14:30' },
+];
+
 const ghHeaders = (token) => ({
   Authorization: `Bearer ${token}`,
   Accept: 'application/vnd.github+json',
@@ -58,6 +65,8 @@ async function handleRun(request, env) {
 
   const name = String(body.name ?? '').replace(/\s+/g, ' ').trim();
   if (!NAME_RE.test(name)) return json({ error: 'Enter a valid name (letters and spaces, 2-40 characters).' }, 400);
+  const shift = String(body.shift ?? '');
+  if (!SHIFTS.some((s) => s.value === shift)) return json({ error: 'Choose a shift.' }, 400);
   if (body.confirmed !== true) return json({ error: 'Please confirm the red bags were checked.' }, 400);
   const dry = body.dry === true;
 
@@ -72,14 +81,14 @@ async function handleRun(request, env) {
       headers: { ...ghHeaders(env.GH_TOKEN), 'content-type': 'application/json' },
       body: JSON.stringify({
         ref: 'main',
-        inputs: { headcodes: '', duty_number: name, dry_run: dry ? 'true' : 'false' },
+        inputs: { shift, headcodes: '', duty_number: name, dry_run: dry ? 'true' : 'false' },
       }),
     });
     if (res.status !== 204) return json({ error: `GitHub refused the request (${res.status}).` }, 502);
   } catch {
     return json({ error: 'Could not reach GitHub. Try again.' }, 502);
   }
-  return json({ ok: true, startedAt: Date.now(), dry });
+  return json({ ok: true, startedAt: Date.now(), dry, shift });
 }
 
 async function handleStatus(request, env) {
@@ -114,6 +123,8 @@ export default {
   },
 };
 
+const SHIFT_OPTIONS = SHIFTS.map((s) => `<option value="${s.value}">${s.label}</option>`).join('');
+
 const PAGE = `<!doctype html>
 <html lang="en">
 <head>
@@ -131,7 +142,7 @@ const PAGE = `<!doctype html>
   p.sub { color:var(--muted); margin:0 0 20px; }
   form { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; display:grid; gap:14px; }
   label { display:grid; gap:6px; font-weight:600; font-size:14px; }
-  input[type=text], input[type=password] { font:inherit; padding:12px; border-radius:10px; border:1px solid var(--line); background:transparent; color:inherit; }
+  input[type=text], input[type=password], select { font:inherit; padding:12px; border-radius:10px; border:1px solid var(--line); background:transparent; color:inherit; }
   label.check { display:flex; gap:10px; align-items:flex-start; font-weight:400; }
   label.check input { margin-top:4px; width:20px; height:20px; flex:none; }
   button { font:inherit; font-weight:700; padding:14px; border:0; border-radius:10px; background:var(--accent); color:#fff; cursor:pointer; }
@@ -144,18 +155,21 @@ const PAGE = `<!doctype html>
 <body>
 <main>
   <h1>Red Bag Compliance</h1>
-  <p class="sub">Submits the form for every train on the saved list, one response per headcode.</p>
+  <p class="sub">Submits the form for every train on the saved list of the chosen shift, one response per headcode.</p>
   <div id="banner">DRY RUN: the form is filled but nothing is submitted.</div>
   <form id="f" autocomplete="off">
     <label>Your name (Duty Number)
       <input id="name" type="text" maxlength="40" required autocapitalize="characters">
+    </label>
+    <label>Shift
+      <select id="shift" required>${SHIFT_OPTIONS}</select>
     </label>
     <label>Passcode
       <input id="pass" type="password" required>
     </label>
     <label class="check">
       <input id="ok" type="checkbox" required>
-      <span>I have checked the red bag on every train on the list.</span>
+      <span>I have checked the red bag on every train of this shift.</span>
     </label>
     <button id="go" type="submit">Submit all</button>
   </form>
@@ -165,7 +179,12 @@ const PAGE = `<!doctype html>
   const $ = (id) => document.getElementById(id);
   const dry = new URLSearchParams(location.search).get('dry') === '1';
   if (dry) $('banner').style.display = 'block';
-  try { $('name').value = localStorage.getItem('rb_name') || ''; $('pass').value = localStorage.getItem('rb_pass') || ''; } catch {}
+  try {
+    $('name').value = localStorage.getItem('rb_name') || '';
+    $('pass').value = localStorage.getItem('rb_pass') || '';
+    const saved = localStorage.getItem('rb_shift');
+    if (saved && [...$('shift').options].some((o) => o.value === saved)) $('shift').value = saved;
+  } catch {}
 
   function show(text, kind) {
     const m = $('msg'); m.textContent = text; m.className = kind || ''; m.style.display = 'block';
@@ -197,11 +216,11 @@ const PAGE = `<!doctype html>
       const res = await fetch('/run', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name, passcode: pass, confirmed: $('ok').checked, dry }),
+        body: JSON.stringify({ name, shift: $('shift').value, passcode: pass, confirmed: $('ok').checked, dry }),
       });
       const data = await res.json();
       if (!res.ok) { show(data.error || 'Something went wrong.', 'bad'); $('go').disabled = false; return; }
-      try { localStorage.setItem('rb_name', name); localStorage.setItem('rb_pass', pass); } catch {}
+      try { localStorage.setItem('rb_name', name); localStorage.setItem('rb_pass', pass); localStorage.setItem('rb_shift', $('shift').value); } catch {}
       show('Started. This takes a few minutes. Do not tap again.');
       poll(data.startedAt, pass).finally(() => { $('go').disabled = false; });
     } catch {
