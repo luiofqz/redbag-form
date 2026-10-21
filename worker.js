@@ -150,6 +150,10 @@ const PAGE = `<!doctype html>
   #banner { display:none; background:#fff4d6; color:#5c4400; border-radius:10px; padding:10px 12px; margin-bottom:14px; font-size:14px; }
   #msg { margin-top:16px; padding:12px; border-radius:10px; border:1px solid var(--line); background:var(--card); display:none; }
   #msg.ok { border-color:var(--ok); } #msg.bad { border-color:var(--bad); }
+  [hidden] { display:none !important; }
+  #result { padding:16px; border-radius:10px; text-align:center; font-weight:700; border:2px solid var(--ok); }
+  #result.bad { border-color:var(--bad); }
+  #result a { display:inline-block; margin-top:8px; font-weight:400; color:var(--accent); }
 </style>
 </head>
 <body>
@@ -172,6 +176,7 @@ const PAGE = `<!doctype html>
       <span>I have checked the red bag on every train of this shift.</span>
     </label>
     <button id="go" type="submit">Submit all</button>
+    <div id="result" role="status" aria-live="polite" hidden></div>
   </form>
   <div id="msg" role="status" aria-live="polite"></div>
 </main>
@@ -190,7 +195,29 @@ const PAGE = `<!doctype html>
     const m = $('msg'); m.textContent = text; m.className = kind || ''; m.style.display = 'block';
   }
 
-  async function poll(startedAt, pass) {
+  // Replaces the Submit button with the final result.
+  function finish(kind, text) {
+    $('msg').style.display = 'none';
+    $('go').hidden = true;
+    const r = $('result');
+    r.className = kind;
+    r.textContent = text;
+    r.appendChild(document.createElement('br'));
+    const a = document.createElement('a');
+    a.href = '#';
+    a.textContent = 'Start another';
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      r.hidden = true;
+      $('go').hidden = false;
+      $('go').disabled = false;
+      $('ok').checked = false;
+    });
+    r.appendChild(a);
+    r.hidden = false;
+  }
+
+  async function poll(startedAt, pass, label) {
     for (let i = 0; i < 150; i++) {
       await new Promise((r) => setTimeout(r, 6000));
       try {
@@ -199,17 +226,18 @@ const PAGE = `<!doctype html>
         const run = data.run;
         if (!run || run.createdAt < startedAt - 20000) { show('Waiting for the run to start...'); continue; }
         if (run.status !== 'completed') { show('Running... this takes a few minutes. You can close this page.'); continue; }
-        if (run.conclusion === 'success') show(dry ? 'Dry run finished. Nothing was submitted.' : 'Done. All responses were submitted.', 'ok');
-        else show('The run finished with problems. Tell Luigi so he can check which trains failed.', 'bad');
+        if (run.conclusion === 'success') finish('ok', dry ? 'Dry run finished ✔ Nothing was submitted.' : 'Done ✔ All responses were submitted (' + label + ').');
+        else finish('bad', 'Finished with problems. Do not run again before checking. Tell Luigi so he can check which trains failed.');
         return;
       } catch { /* keep polling */ }
     }
-    show('Still running. Ask Luigi to check GitHub Actions.', 'bad');
+    finish('bad', 'Still running. Ask Luigi to check GitHub Actions.');
   }
 
   $('f').addEventListener('submit', async (e) => {
     e.preventDefault();
     const name = $('name').value, pass = $('pass').value;
+    const label = $('shift').selectedOptions[0].textContent;
     $('go').disabled = true;
     show('Starting...');
     try {
@@ -222,7 +250,7 @@ const PAGE = `<!doctype html>
       if (!res.ok) { show(data.error || 'Something went wrong.', 'bad'); $('go').disabled = false; return; }
       try { localStorage.setItem('rb_name', name); localStorage.setItem('rb_pass', pass); localStorage.setItem('rb_shift', $('shift').value); } catch {}
       show('Started. This takes a few minutes. Do not tap again.');
-      poll(data.startedAt, pass).finally(() => { $('go').disabled = false; });
+      poll(data.startedAt, pass, label);
     } catch {
       show('Network problem. Check your connection and try again.', 'bad');
       $('go').disabled = false;
