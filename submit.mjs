@@ -1,6 +1,6 @@
 // Fills (and optionally submits) the "Red Bag Compliance" Microsoft Form
 // once per headcode. Configuration comes from environment variables.
-import { chromium } from 'playwright';
+import { chromium } from 'playwright-core';
 import fs from 'node:fs';
 
 const FORM_URL = process.env.FORM_URL;
@@ -8,6 +8,8 @@ const DUTY_NUMBER = (process.env.DUTY_NUMBER || 'LUIGI CERBAN').trim().toUpperCa
 const BASE_STATION = process.env.BASE_STATION || 'KGX';
 const TURNAROUND_LOCATION = process.env.TURNAROUND_LOCATION || 'KGX';
 const DRY_RUN = process.env.DRY_RUN !== 'false';
+// How many forms are filled at the same time (each in its own browser context).
+const CONCURRENCY = Math.max(1, Math.min(6, Number(process.env.CONCURRENCY) || 4));
 
 // Headcodes typed into the workflow take priority; otherwise use the list for the
 // chosen shift in shifts/<shift>.txt (one per line, '#' starts a comment).
@@ -51,7 +53,7 @@ async function pickRadio(q, label) {
 }
 
 async function fillOne(page, code) {
-  await page.goto(FORM_URL, { waitUntil: 'networkidle' });
+  await page.goto(FORM_URL, { waitUntil: 'domcontentloaded' });
   await question(page, 'Headcode').waitFor({ timeout: 30000 });
 
   await pickDropdown(page, question(page, 'Headcode'), code);
@@ -69,10 +71,16 @@ async function fillOne(page, code) {
   await pickRadio(question(page, 'Red Bag Fully Stocked'), 'Yes');
 }
 
-const browser = await chromium.launch();
-const results = [];
+// Prefer the Chrome that is preinstalled on GitHub's runners (no download needed);
+// fall back to Playwright's own Chromium.
+let browser;
+try {
+  browser = await chromium.launch({ channel: 'chrome' });
+} catch {
+  browser = await chromium.launch();
+}
 
-for (const code of codes) {
+async function processOne(code) {
   const context = await browser.newContext({
     viewport: { width: 900, height: 1600 },
     locale: 'en-GB',
@@ -89,34 +97,45 @@ for (const code of codes) {
       } catch (err) {
         if (attempt >= 3 || /not found in dropdown/.test(err.message)) throw err;
         console.log(`Attempt ${attempt} for ${code} failed (${err.message.split('\n')[0]}); retrying...`);
-        await page.waitForTimeout(5000 * attempt);
+        await page.waitForTimeout(3000 * attempt);
       }
     }
     await shot('filled');
 
-    if (DRY_RUN) {
-      results.push({ code, status: 'DRY RUN - filled, not submitted' });
-    } else {
-      await page.getByRole('button', { name: 'Submit', exact: true }).click();
-      submitClicked = true;
-      await page.getByText(/response (was|has been) (successfully )?submitted|thank/i).first().waitFor({ timeout: 30000 });
-      await shot('submitted');
-      results.push({ code, status: 'SUBMITTED' });
-    }
+    if (DRY_RUN) return { code, status: 'DRY RUN - filled, not submitted' };
+
+    await page.getByRole('button', { name: 'Submit', exact: true }).click();
+    submitClicked = true;
+    await page.getByText(/response (was|has been) (successfully )?submitted|thank/i).first().waitFor({ timeout: 30000 });
+    await shot('submitted');
+    return { code, status: 'SUBMITTED' };
   } catch (err) {
     await shot('error').catch(() => {});
     const msg = err.message.split('\n').slice(0, 3).join(' | ');
     console.log(`::error title=Headcode ${code} failed::${msg}`);
-    results.push({
+    return {
       code,
       status: submitClicked
         ? 'NOT CONFIRMED - Submit was clicked, the form may have been sent. Check responses before retrying'
         : `FAILED: ${err.message.split('\n')[0]}`,
-    });
+    };
   } finally {
     await context.close();
   }
 }
+
+// Small worker pool: each headcode is handled by exactly one worker.
+const results = new Array(codes.length);
+let nextIndex = 0;
+async function poolWorker() {
+  while (nextIndex < codes.length) {
+    const i = nextIndex++;
+    results[i] = await processOne(codes[i]);
+  }
+}
+const started = Date.now();
+await Promise.all(Array.from({ length: Math.min(CONCURRENCY, codes.length) }, poolWorker));
+console.log(`Processed ${codes.length} headcode(s) in ${Math.round((Date.now() - started) / 1000)}s with concurrency ${CONCURRENCY}`);
 
 await browser.close();
 

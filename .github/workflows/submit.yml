@@ -47,7 +47,8 @@ jobs:
       - name: Install dependencies
         run: |
           npm install --no-audit --no-fund
-          npx playwright install --with-deps chromium
+          # GitHub runners ship with Chrome; only download a browser if it is missing.
+          google-chrome --version || npx playwright-core install --with-deps chromium
 
       - name: Fill form
         env:
@@ -55,6 +56,7 @@ jobs:
           DUTY_NUMBER: ${{ inputs.duty_number }}
           BASE_STATION: 'KGX'
           TURNAROUND_LOCATION: 'KGX'
+          CONCURRENCY: '4'
           SHIFT: ${{ inputs.shift }}
           HEADCODES: ${{ inputs.headcodes }}
           DRY_RUN: ${{ inputs.dry_run }}
