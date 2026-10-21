@@ -52,15 +52,21 @@ async function pickRadio(q, label) {
   await q.getByText(label, { exact: true }).first().click();
 }
 
-async function fillOne(page, code) {
+async function fillOne(page, code, tm) {
+  let t = Date.now();
+  const lap = (k) => { const n = Date.now(); tm[k] = ((n - t) / 1000).toFixed(1); t = n; };
+
   await page.goto(FORM_URL, { waitUntil: 'domcontentloaded' });
   await question(page, 'Headcode').waitFor({ timeout: 30000 });
+  lap('load');
 
   await pickDropdown(page, question(page, 'Headcode'), code);
+  lap('headcode');
   await pickRadio(question(page, 'Type of Clean'), 'Turnaround');
 
   // The remaining questions appear only after Turnaround is chosen.
   await question(page, 'Turnaround Location').waitFor({ timeout: 15000 });
+  lap('turnaround');
   await pickDropdown(page, question(page, 'Turnaround Location'), TURNAROUND_LOCATION);
   await question(page, 'Duty Number')
     .locator('input[type="text"], input:not([type]), textarea')
@@ -69,6 +75,7 @@ async function fillOne(page, code) {
   await pickDropdown(page, question(page, 'Base Station'), BASE_STATION);
   await pickRadio(question(page, 'Red Bag Present'), 'Yes');
   await pickRadio(question(page, 'Red Bag Fully Stocked'), 'Yes');
+  lap('rest');
 }
 
 // Prefer the Chrome that is preinstalled on GitHub's runners (no download needed);
@@ -80,19 +87,27 @@ try {
   browser = await chromium.launch();
 }
 
+const timings = [];
+
 async function processOne(code) {
   const context = await browser.newContext({
     viewport: { width: 900, height: 1600 },
     locale: 'en-GB',
   });
+  // Images, fonts and media are not needed to fill the form; skipping them is faster.
+  await context.route('**/*', (route) =>
+    ['image', 'font', 'media'].includes(route.request().resourceType()) ? route.abort() : route.continue(),
+  );
   const page = await context.newPage();
+  const t0 = Date.now();
+  const tm = {};
   const shot = (name) => page.screenshot({ path: `out/${code}-${name}.png`, fullPage: true });
   let submitClicked = false;
   try {
     // Retry the fill phase only (never after Submit, to avoid duplicates).
     for (let attempt = 1; ; attempt++) {
       try {
-        await fillOne(page, code);
+        await fillOne(page, code, tm);
         break;
       } catch (err) {
         if (attempt >= 3 || /not found in dropdown/.test(err.message)) throw err;
@@ -101,6 +116,7 @@ async function processOne(code) {
       }
     }
     await shot('filled');
+    timings.push(`${code} load ${tm.load} hc ${tm.headcode} turn ${tm.turnaround} rest ${tm.rest} total ${((Date.now() - t0) / 1000).toFixed(1)}`);
 
     if (DRY_RUN) return { code, status: 'DRY RUN - filled, not submitted' };
 
@@ -135,6 +151,7 @@ async function poolWorker() {
 }
 const started = Date.now();
 await Promise.all(Array.from({ length: Math.min(CONCURRENCY, codes.length) }, poolWorker));
+console.log(`::notice title=Timing (seconds)::${timings.join(' | ')}`);
 console.log(`Processed ${codes.length} headcode(s) in ${Math.round((Date.now() - started) / 1000)}s with concurrency ${CONCURRENCY}`);
 
 await browser.close();
