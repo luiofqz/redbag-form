@@ -1,18 +1,3 @@
 # One headcode per line. Lines starting with # are ignored.
 1B82
-1D08
-1D09
-1N82
-1D10
-1D12
-1S13
-1B86
-1N06
-1D13
-1S15
-1N07
-1S19
-1S21
-1D22
-1N85
-1N05
+
