@@ -7,6 +7,11 @@ on:
         description: 'Optional. Leave EMPTY to use the list in headcodes.txt'
         required: false
         type: string
+      duty_number:
+        description: 'Duty Number / name to put in the form'
+        required: true
+        type: string
+        default: 'LUIGI CERBAN'
       dry_run:
         description: 'Dry run: fill the form but do NOT submit'
         required: true
@@ -39,7 +44,7 @@ jobs:
       - name: Fill form
         env:
           FORM_URL: 'https://forms.cloud.microsoft/Pages/ResponsePage.aspx?id=epN2o7B0xUGY4WFX7HH6_IjIpTyxj5BPi4vEj19gOzpUN0pHMUNPUTBKVzRVNlk5QloyWEVGTUgyQiQlQCN0PWcu&qrcode=true'
-          DUTY_NUMBER: 'LUIGI CERBAN'
+          DUTY_NUMBER: ${{ inputs.duty_number }}
           BASE_STATION: 'KGX'
           TURNAROUND_LOCATION: 'KGX'
           HEADCODES: ${{ inputs.headcodes }}

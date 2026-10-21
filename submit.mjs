@@ -4,7 +4,7 @@ import { chromium } from 'playwright';
 import fs from 'node:fs';
 
 const FORM_URL = process.env.FORM_URL;
-const DUTY_NUMBER = process.env.DUTY_NUMBER || 'LUIGI CERBAN';
+const DUTY_NUMBER = (process.env.DUTY_NUMBER || 'LUIGI CERBAN').trim().toUpperCase();
 const BASE_STATION = process.env.BASE_STATION || 'KGX';
 const TURNAROUND_LOCATION = process.env.TURNAROUND_LOCATION || 'KGX';
 const DRY_RUN = process.env.DRY_RUN !== 'false';
