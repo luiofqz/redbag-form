@@ -42,15 +42,17 @@ function safeEqual(a, b) {
 
 const NAME_RE = /^\p{L}[\p{L} '.\-]{1,39}$/u;
 
-async function latestRun(env) {
+async function listRuns(env, perPage) {
   const res = await fetch(
-    `${GH}/repos/${REPO}/actions/workflows/${WORKFLOW}/runs?event=workflow_dispatch&per_page=1`,
+    `${GH}/repos/${REPO}/actions/workflows/${WORKFLOW}/runs?event=workflow_dispatch&per_page=${perPage}`,
     { headers: ghHeaders(env.GH_TOKEN) },
   );
   if (!res.ok) throw new Error(`GitHub runs lookup failed (${res.status})`);
   const data = await res.json();
-  return data.workflow_runs?.[0] ?? null;
+  return data.workflow_runs ?? [];
 }
+
+const latestRun = async (env) => (await listRuns(env, 1))[0] ?? null;
 
 async function handleRun(request, env) {
   let body;
@@ -95,10 +97,9 @@ async function handleStatus(request, env) {
   if (!env.GH_TOKEN || !env.PASSCODE) return json({ error: 'Server is not configured.' }, 500);
   if (!safeEqual(request.headers.get('x-passcode') ?? '', env.PASSCODE)) return json({ error: 'Wrong passcode.' }, 401);
   try {
-    const run = await latestRun(env);
-    if (!run) return json({ run: null });
+    const runs = await listRuns(env, 10);
     return json({
-      run: { status: run.status, conclusion: run.conclusion, createdAt: Date.parse(run.created_at) },
+      runs: runs.map((r) => ({ status: r.status, conclusion: r.conclusion, createdAt: Date.parse(r.created_at) })),
     });
   } catch {
     return json({ error: 'Could not reach GitHub.' }, 502);
@@ -197,6 +198,7 @@ const PAGE = `<!doctype html>
 
   // Replaces the Submit button with the final result.
   function finish(kind, text) {
+    try { localStorage.removeItem('rb_run'); } catch {}
     $('msg').style.display = 'none';
     $('go').hidden = true;
     const r = $('result');
@@ -217,16 +219,18 @@ const PAGE = `<!doctype html>
     r.hidden = false;
   }
 
-  async function poll(startedAt, pass, label) {
+  async function poll(startedAt, pass, label, isDry) {
     for (let i = 0; i < 150; i++) {
       await new Promise((r) => setTimeout(r, 6000));
       try {
         const res = await fetch('/status', { headers: { 'x-passcode': pass } });
+        if (res.status === 401) { finish('bad', 'Wrong passcode.'); return; }
         const data = await res.json();
-        const run = data.run;
-        if (!run || run.createdAt < startedAt - 20000) { show('Waiting for the run to start...'); continue; }
-        if (run.status !== 'completed') { show('Running... this takes a few minutes. You can close this page.'); continue; }
-        if (run.conclusion === 'success') finish('ok', dry ? 'Dry run finished ✔ Nothing was submitted.' : 'Done ✔ All responses were submitted (' + label + ').');
+        // Our run is the oldest one created after we pressed the button.
+        const run = (data.runs || []).filter((r) => r.createdAt >= startedAt - 20000).sort((a, b) => a.createdAt - b.createdAt)[0];
+        if (!run) { show('Waiting for the run to start...'); continue; }
+        if (run.status !== 'completed') { show('Running... this takes a few minutes. Keep this page open. If you close it, open the same link again on this phone and the result will appear.'); continue; }
+        if (run.conclusion === 'success') finish('ok', isDry ? 'Dry run finished ✔ Nothing was submitted.' : 'Done ✔ All responses were submitted (' + label + ').');
         else finish('bad', 'Finished with problems. Do not run again before checking. Tell Luigi so he can check which trains failed.');
         return;
       } catch { /* keep polling */ }
@@ -249,13 +253,27 @@ const PAGE = `<!doctype html>
       const data = await res.json();
       if (!res.ok) { show(data.error || 'Something went wrong.', 'bad'); $('go').disabled = false; return; }
       try { localStorage.setItem('rb_name', name); localStorage.setItem('rb_pass', pass); localStorage.setItem('rb_shift', $('shift').value); } catch {}
-      show('Started. This takes a few minutes. Do not tap again.');
-      poll(data.startedAt, pass, label);
+      try { localStorage.setItem('rb_run', JSON.stringify({ startedAt: data.startedAt, label, dry })); } catch {}
+      show('Started. This takes a few minutes. Keep this page open until you see the confirmation. Do not tap again.');
+      poll(data.startedAt, pass, label, dry);
     } catch {
       show('Network problem. Check your connection and try again.', 'bad');
       $('go').disabled = false;
     }
   });
+
+  // If the page was closed while a run was in progress, pick the run up again.
+  try {
+    const saved = JSON.parse(localStorage.getItem('rb_run') || 'null');
+    const pass = localStorage.getItem('rb_pass');
+    if (saved && pass && Date.now() - saved.startedAt < 45 * 60 * 1000) {
+      $('go').disabled = true;
+      show('Checking the run you started earlier...');
+      poll(saved.startedAt, pass, saved.label, saved.dry);
+    } else if (saved) {
+      localStorage.removeItem('rb_run');
+    }
+  } catch {}
 </script>
 </body>
 </html>`;
