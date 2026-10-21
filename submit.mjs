@@ -91,6 +91,8 @@ for (const code of codes) {
     }
   } catch (err) {
     await shot('error').catch(() => {});
+    const msg = err.message.split('\n').slice(0, 3).join(' | ');
+    console.log(`::error title=Headcode ${code} failed::${msg}`);
     results.push({ code, status: `FAILED: ${err.message.split('\n')[0]}` });
   } finally {
     await context.close();
