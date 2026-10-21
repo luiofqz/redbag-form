@@ -10,7 +10,9 @@ Red Bag Fully Stocked = Yes.
 
 GitHub app or github.com -> Actions -> "Submit Red Bag form" -> Run workflow.
 
-- `headcodes`: one or more headcodes, separated by spaces, commas or new lines.
+- `shift`: which saved list to use (`shifts/0800-1600.txt` or `shifts/0630-1430.txt`).
+- `headcodes`: optional. Leave empty to use the shift list; if filled, only these
+  headcodes are used (separated by spaces, commas or new lines).
 - `dry_run`: when ticked, the form is filled but NOT submitted. Screenshots of
   the filled form are attached to the run (artifact "screenshots").
 
@@ -20,8 +22,8 @@ only do it for trains where the red bag has actually been checked.
 ## Web page for colleagues (Cloudflare Worker)
 
 `worker.js` is a small web page (name + passcode + confirmation) that starts the
-workflow with the colleague's name as Duty Number and the saved list from
-`headcodes.txt`. The GitHub token stays on the server, never in the page.
+workflow with the colleague's name as Duty Number, the chosen shift, and the
+saved list for that shift from `shifts/<shift>.txt`. The GitHub token stays on the server, never in the page.
 
 Setup (once, about 10 minutes):
 

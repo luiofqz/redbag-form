@@ -1,0 +1,1 @@
+# Shift 06:30 - 14:30. One headcode per line. Lines starting with # are ignored.

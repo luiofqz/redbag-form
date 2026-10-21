@@ -9,14 +9,19 @@ const BASE_STATION = process.env.BASE_STATION || 'KGX';
 const TURNAROUND_LOCATION = process.env.TURNAROUND_LOCATION || 'KGX';
 const DRY_RUN = process.env.DRY_RUN !== 'false';
 
-// Headcodes typed into the workflow take priority; otherwise use headcodes.txt
-// (one per line, everything after '#' is ignored).
+// Headcodes typed into the workflow take priority; otherwise use the list for the
+// chosen shift in shifts/<shift>.txt (one per line, '#' starts a comment).
+const SHIFT = process.env.SHIFT || '0800-1600';
+if (!/^\d{4}-\d{4}$/.test(SHIFT)) throw new Error(`Invalid shift: ${SHIFT}`);
 const typed = (process.env.HEADCODES || '').trim();
-const raw = typed || fs.readFileSync('headcodes.txt', 'utf8').replace(/#.*$/gm, '');
+const raw = typed || fs.readFileSync(`shifts/${SHIFT}.txt`, 'utf8').replace(/#.*$/gm, '');
 const codes = [...new Set(raw.toUpperCase().split(/[\s,;]+/).filter(Boolean))];
 
 if (!FORM_URL) throw new Error('FORM_URL is not set');
-if (codes.length === 0) throw new Error('No headcodes provided');
+if (codes.length === 0) {
+  console.log(`::error title=No headcodes::shifts/${SHIFT}.txt has no headcodes. Add them and run again.`);
+  throw new Error(`No headcodes for shift ${SHIFT}`);
+}
 
 fs.mkdirSync('out', { recursive: true });
 
@@ -116,7 +121,7 @@ for (const code of codes) {
 await browser.close();
 
 const lines = [
-  `## Red Bag Compliance (${DRY_RUN ? 'dry run' : 'live'})`,
+  `## Red Bag Compliance (${DRY_RUN ? 'dry run' : 'live'}) - ${typed ? 'typed list' : `shift ${SHIFT}`}`,
   '',
   '| Headcode | Result |',
   '| --- | --- |',

@@ -3,8 +3,16 @@ name: Submit Red Bag form
 on:
   workflow_dispatch:
     inputs:
+      shift:
+        description: 'Shift (uses the list in shifts/<shift>.txt)'
+        required: true
+        type: choice
+        options:
+          - '0800-1600'
+          - '0630-1430'
+        default: '0800-1600'
       headcodes:
-        description: 'Optional. Leave EMPTY to use the list in headcodes.txt'
+        description: 'Optional. Leave EMPTY to use the shift list. If filled, only these are used'
         required: false
         type: string
       duty_number:
@@ -47,6 +55,7 @@ jobs:
           DUTY_NUMBER: ${{ inputs.duty_number }}
           BASE_STATION: 'KGX'
           TURNAROUND_LOCATION: 'KGX'
+          SHIFT: ${{ inputs.shift }}
           HEADCODES: ${{ inputs.headcodes }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: node submit.mjs
