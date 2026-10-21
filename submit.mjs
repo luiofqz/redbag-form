@@ -74,14 +74,26 @@ for (const code of codes) {
   });
   const page = await context.newPage();
   const shot = (name) => page.screenshot({ path: `out/${code}-${name}.png`, fullPage: true });
+  let submitClicked = false;
   try {
-    await fillOne(page, code);
+    // Retry the fill phase only (never after Submit, to avoid duplicates).
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await fillOne(page, code);
+        break;
+      } catch (err) {
+        if (attempt >= 3 || /not found in dropdown/.test(err.message)) throw err;
+        console.log(`Attempt ${attempt} for ${code} failed (${err.message.split('\n')[0]}); retrying...`);
+        await page.waitForTimeout(5000 * attempt);
+      }
+    }
     await shot('filled');
 
     if (DRY_RUN) {
       results.push({ code, status: 'DRY RUN - filled, not submitted' });
     } else {
       await page.getByRole('button', { name: 'Submit', exact: true }).click();
+      submitClicked = true;
       await page.getByText(/response (was|has been) (successfully )?submitted|thank/i).first().waitFor({ timeout: 30000 });
       await shot('submitted');
       results.push({ code, status: 'SUBMITTED' });
@@ -90,7 +102,12 @@ for (const code of codes) {
     await shot('error').catch(() => {});
     const msg = err.message.split('\n').slice(0, 3).join(' | ');
     console.log(`::error title=Headcode ${code} failed::${msg}`);
-    results.push({ code, status: `FAILED: ${err.message.split('\n')[0]}` });
+    results.push({
+      code,
+      status: submitClicked
+        ? 'NOT CONFIRMED - Submit was clicked, the form may have been sent. Check responses before retrying'
+        : `FAILED: ${err.message.split('\n')[0]}`,
+    });
   } finally {
     await context.close();
   }
@@ -109,4 +126,4 @@ const summary = lines.join('\n');
 console.log(summary);
 if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\n');
 
-if (results.some((r) => r.status.startsWith('FAILED'))) process.exit(1);
+if (results.some((r) => /^(FAILED|NOT CONFIRMED)/.test(r.status))) process.exit(1);
