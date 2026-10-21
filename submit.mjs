@@ -52,12 +52,27 @@ async function pickRadio(q, label) {
   await q.getByText(label, { exact: true }).first().click();
 }
 
+// Wait for the form, but fail fast if Microsoft Forms shows its error page.
+async function waitForForm(page) {
+  const form = question(page, 'Headcode').waitFor({ timeout: 12000 }).then(() => 'form');
+  const bad = page.getByText('Sorry, something went wrong').first().waitFor({ timeout: 12000 }).then(() => 'error');
+  form.catch(() => {}); // avoid unhandled rejections from the loser of the race
+  bad.catch(() => {});
+  let first;
+  try {
+    first = await Promise.any([form, bad]);
+  } catch {
+    throw new Error('Form did not load in 12s');
+  }
+  if (first === 'error') throw new Error('Microsoft Forms returned an error page');
+}
+
 async function fillOne(page, code, tm) {
   let t = Date.now();
   const lap = (k) => { const n = Date.now(); tm[k] = ((n - t) / 1000).toFixed(1); t = n; };
 
-  await page.goto(FORM_URL, { waitUntil: 'domcontentloaded' });
-  await question(page, 'Headcode').waitFor({ timeout: 30000 });
+  await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
+  await waitForForm(page);
   lap('load');
 
   await pickDropdown(page, question(page, 'Headcode'), code);
@@ -151,8 +166,9 @@ async function poolWorker() {
 }
 const started = Date.now();
 await Promise.all(Array.from({ length: Math.min(CONCURRENCY, codes.length) }, poolWorker));
-console.log(`::notice title=Timing (seconds)::${timings.join(' | ')}`);
-console.log(`Processed ${codes.length} headcode(s) in ${Math.round((Date.now() - started) / 1000)}s with concurrency ${CONCURRENCY}`);
+const elapsed = Math.round((Date.now() - started) / 1000);
+console.log(`::notice title=Timing (seconds)::ALL ${codes.length} headcodes in ${elapsed}s (concurrency ${CONCURRENCY}) | ${timings.join(' | ')}`);
+console.log(`Processed ${codes.length} headcode(s) in ${elapsed}s with concurrency ${CONCURRENCY}`);
 
 await browser.close();
 
